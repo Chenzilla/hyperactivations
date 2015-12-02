@@ -10,7 +10,7 @@ class Hyperactivations
   def initialize
     init = ProgressBar.new("Initializing", 5)
     @weeks = 3
-    @time_cutoff = 1
+    @time_cutoff = 45
     @created_at = []
 
     @id = []
@@ -84,7 +84,7 @@ class Hyperactivations
     @id.each_with_index do |dispenser, index|
       @dispensers << [dispenser]
       @hours.each do |hours|
-        @dispensers[index] << [hours, 0, 0, 0, 0, 0]
+        @dispensers[index] << [hours, "empty", "empty", "empty", "empty", 0]
       end
     end
   end
@@ -123,7 +123,7 @@ class Hyperactivations
   end
 
   # Find the correct index for the specified dispenser. Then, match the correct min values to the corresponding time array.
-  def assignCounts(fileName, position)
+  def assignCounts(fileName, position, min)
     timeKey = setTimeKey(fileName)
     CSV.foreach(fileName, headers: true) do |row|
       # Extract the ID index in the dispenser matrix and then drop the ID from the main row
@@ -138,7 +138,11 @@ class Hyperactivations
       row.each_with_index do |value, value_index| 
         dispenserIndex = findIndex(dispenserValues, timeKey[value_index]) + 1
         currentValue = @dispensers[idIndex][dispenserIndex][position]
-        @dispensers[idIndex][dispenserIndex][position] = value[1].to_i 
+        if min
+          @dispensers[idIndex][dispenserIndex][position] = value[1].to_i if (value[1] != "" && (currentValue == "empty" || currentValue > value[1].to_i))
+        else
+          @dispensers[idIndex][dispenserIndex][position] = value[1].to_i if (value[1] != "" && (currentValue == "empty" || currentValue < value[1].to_i))
+        end
       end
     end
   end
@@ -176,10 +180,8 @@ class Hyperactivations
         if hour[1] == "empty" 
           processed_row = processed_row + ["empty", "empty", "empty"]
         else
-          activations = hour[2] - hour[1]
-          activations += 1 if hour[2] > 0
+          activations = hour[2] - hour[1] + 1
           time = hour[4] - hour[3]
-          time += 1 if hour[4] > 0
           events = hour[5]
           processed_row = processed_row + [activations, time, events]
         end
@@ -210,9 +212,9 @@ class Hyperactivations
         if created_date.nil?
           next
         elsif created_date < current_time && time_row[1] == "empty"
-          time_row[1] = 0
-          time_row[2] = 0
-          time_row[3] = 0
+          time_row[1] = "empty"
+          time_row[2] = "empty"
+          time_row[3] = "empty"
         end
       end
     end
@@ -226,22 +228,23 @@ class Hyperactivations
         bucket = hour[0][6..8]
         bucketIndex = findIndex(@hourKey, bucket) + 1
         # Times skipped = 4
-        if hour[1] == 0
+        if hour[1] == "empty"
           @hourly_output[idIndex][bucketIndex][4] += 1
+          @hourly_output[idIndex][bucketIndex][7] += 1
         # Times where interval wasn't good enough = 5
         elsif hour[2] < @time_cutoff
           @hourly_output[idIndex][bucketIndex][5] += 1
+          @hourly_output[idIndex][bucketIndex][7] += 1
         # Times where no activations = 6
-        # elsif hour[1] == 0 
-        #   @hourly_output[idIndex][bucketIndex][6] += 1
-        #   @hourly_output[idIndex][bucketIndex][6] += 1
+        elsif hour[1] == 0 
+          @hourly_output[idIndex][bucketIndex][6] += 1
+          @hourly_output[idIndex][bucketIndex][7] += 1
         else
           # Activations = 1, time_interval = 2, events = 3 | new 1 = summed activations, 2 = summed events, 3 = summed ratio, 6 = 0 counts, 7 = total counts
           @hourly_output[idIndex][bucketIndex][1] += hour[1]
           @hourly_output[idIndex][bucketIndex][2] += hour[3]
           @hourly_output[idIndex][bucketIndex][3] += hour[1].to_f/hour[3].to_f if hour[1] > 0
-          @hourly_output[idIndex][bucketIndex][6] += 1
-          @hourly_output[idIndex][bucketIndex][7] += hour[2]
+          @hourly_output[idIndex][bucketIndex][7] += 1
         end
       end
     end
@@ -253,19 +256,19 @@ class Hyperactivations
       new_output = [row[0]]
       row[1..-1].each do |time_row|
         new_row = [time_row[0]]
-        if time_row[4] + time_row[5] == time_row[6] || time_row[5] == time_row[6]
-          new_row += [0, 0, 0, 0, 0]
+        if time_row[4] + time_row[5] == time_row[7] || time_row[6] == time_row[7]
+          new_row += [0, 0, 0, 0]
         else
-          n = time_row[6]
+          n = time_row[7]
           # Average activations
           new_row << time_row[1].to_f/n.to_f
           # Average events
           new_row << time_row[2].to_f/n.to_f
           # Average ratio
-          new_row << time_row[3].to_f/(n - time_row[5]).to_f
-          # n
+          new_row << time_row[3].to_f/(n - time_row[6] - time_row[5] - time_row[4]).to_f
+          # where 0 activations
           new_row << time_row[6]
-          # total time
+          # n
           new_row << time_row[7]
         end
         new_output << new_row
@@ -309,24 +312,24 @@ class Hyperactivations
     pbar = ProgressBar.new("Processing", @weeks*5)
 
     @weeks.times do |i|
-      assignCounts("#{i+1}_mincount.csv", 1)
+      assignCounts("#{i+1}_mincount.csv", 1, true)
       pbar.inc
-      assignCounts("#{i+1}_maxcount.csv", 2)
+      assignCounts("#{i+1}_maxcount.csv", 2, false)
       pbar.inc
-      assignCounts("#{i+1}_mintime.csv", 3)
+      assignCounts("#{i+1}_mintime.csv", 3, true)
       pbar.inc
-      assignCounts("#{i+1}_maxtime.csv", 4)
+      assignCounts("#{i+1}_maxtime.csv", 4, false)
       pbar.inc
       assignEvents("#{i+1}_events.csv", 5)
       pbar.inc
     end
     pbar.finish
-    pbar = ProgressBar.new("Calculating", 4)
-    dropDispensers(@dispensers)
-    dropDispensers(@hourly_output)
-    pbar.inc 
 
+    pbar = ProgressBar.new("Calculating", 4)
     calculateProcessed()
+    pbar.inc
+
+    dropDispensers(@processed_output)
     pbar.inc
 
     @dispensers=[]
@@ -334,9 +337,12 @@ class Hyperactivations
     calculateHourly()
     pbar.inc
 
+    dropDispensers(@hourly_output)
+
     calculateAverages()
     pbar.inc
     pbar.finish
+
     output()
   end
 end
