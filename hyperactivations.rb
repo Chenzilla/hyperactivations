@@ -160,7 +160,7 @@ class Hyperactivations
         dispenserIndex = findIndex(dispenserValues, timeKey[value_index]) + 1
         currentValue = @dispensers[idIndex][dispenserIndex][position]
 
-        @dispensers[idIndex][dispenserIndex][position] += value[1].to_i if (currentValue == 0)
+        @dispensers[idIndex][dispenserIndex][position] += value[1].to_i 
       end
     end
   end
@@ -236,7 +236,7 @@ class Hyperactivations
         #   @hourly_output[idIndex][bucketIndex][6] += 1
         #   @hourly_output[idIndex][bucketIndex][6] += 1
         else
-          # Activations = 1, time_interval = 2, events = 3 | new 1 = summed activations, 2 = summed events, 3 = summed ratio, 6 = 0 counts, 7 = total counts
+          # Activations = 1, time_interval = 2, events = 3 | new 1 = summed activations, 2 = summed events, 3 = summed ratio, 4 = missing, 5 = hourly cutoff counts, 6 = total counts, 7 = total time
           @hourly_output[idIndex][bucketIndex][1] += hour[1]
           @hourly_output[idIndex][bucketIndex][2] += hour[3]
           @hourly_output[idIndex][bucketIndex][3] += hour[1].to_f/hour[3].to_f if hour[1] > 0
@@ -253,20 +253,25 @@ class Hyperactivations
       new_output = [row[0]]
       row[1..-1].each do |time_row|
         new_row = [time_row[0]]
-        if time_row[4] + time_row[5] == time_row[6] || time_row[5] == time_row[6]
-          new_row += [0, 0, 0, 0, 0]
+        if time_row[6] == 0
+          new_row += [0, 0, 0, 0, 0, time_row[4] + time_row[5], 0, 0]
         else
-          n = time_row[6]
+          n = time_row[6].to_f
+          time = time_row[7].to_f
           # Average activations
-          new_row << time_row[1].to_f/n.to_f
+          new_row << time_row[1].to_f/n
+          new_row << time_row[1].to_f/time
           # Average events
-          new_row << time_row[2].to_f/n.to_f
+          new_row << time_row[2].to_f/n
+          new_row << time_row[2].to_f/time
           # Average ratio
-          new_row << time_row[3].to_f/(n - time_row[5]).to_f
-          # n
-          new_row << time_row[6]
+          new_row << time_row[3].to_f/n
           # total time
           new_row << time_row[7]
+          # n used
+          new_row << time_row[6]
+          # n unused
+          new_row << time_row[4] + time_row[5]
         end
         new_output << new_row
       end
